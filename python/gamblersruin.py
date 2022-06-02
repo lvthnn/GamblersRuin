@@ -5,12 +5,12 @@ import seaborn as sns
 import pandas as pd
 
 from lifelines import KaplanMeierFitter
-from collections import defaultdict
 
+from collections import defaultdict
 class GamblersRuin:
-    def __init__(self, dur, initial_capital, p):
-        self._duration = dur
-        self._timevec = np.arange(1, dur + 1)
+    def __init__(self, sim_duration, initial_capital, p):
+        self._duration = sim_duration
+        self._timevec = np.arange(1, sim_duration + 1)
         self._initial_capital = initial_capital
         self._kmf = KaplanMeierFitter()
         self._p = p
@@ -141,9 +141,9 @@ class GamblersRuin:
         plt.ylabel("Capital")
         plt.show()
 
-    def duration_analysis(self, games):
+    def survival_analysis(self, games):
         """
-        Performs duration analysis (survival analysis) on a vector of simulated games. Values of p can vary.
+        Estimates survival function for a vector of simulated games. Values of p can vary.
 
         Extended description of function.
 
