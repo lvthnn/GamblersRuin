@@ -1,0 +1,271 @@
+---
+title: "Gambler's Ruin"
+author: "Kári Hlynsson"
+date: "May 27th 2022"
+output:
+  html_document:
+    toc: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+library(tidyverse)
+library(ggthemes)
+library(survival)
+library(survminer)
+library(RColorBrewer)
+```
+
+This is the workbook for the article "Dance with the Devil: Exploring the Mathematics behind Gambler’s Ruin" which can be found in full length on the [author's website](https://lvthnn.github.io).
+
+### Expected game trend
+What do we expect of the average case? Notice that we can write the player's capital at each point in time as a function of the preceding capital value:
+$$
+R(t) = \begin{cases}
+  C_t + 1 & \text{if roll is successful} \\
+  C_t -1 & \text{otherwise}.
+\end{cases}
+$$
+Thus, $R(t)$ returns the players capital at $t + 1$. The expected value of a discrete r.v. $X$ is given by $\mathbb E[X] = \sum_{x \in \Omega} x \cdot \Pr(X = x)$ where $\Omega$ is the sample space of $X$. Thus we see that
+$$
+\begin{align*}
+\mathbb E[R(t)] &= (C_t + 1)p + 
+                   (C_t - 1)(1 - p) \\
+                &= C_t p + p + C_t - C_t p - 1
+                   + p \\
+                &= C_t + 2p - 1 \\
+                &= C_t + \xi \tag*{$\xi \overset{\mathrm{def}}{=} 2p - 1$}
+\end{align*}
+$$
+We see that $\xi < 0$ when $2p - 1 < 0$ i.e. $p < \frac 12$ so we expect the value of the player's capital to decrease on average if the probability of success in the gamble is below $\frac 12$. Since each timestep is a direct result of the preceding one, we have that $C_{t + 1} = C_t + \xi$, which yields $\dot C(t) = \xi$. The linear model is thus obtained by
+$$
+C(t) = C_\alpha + \xi t.
+$$
+
+### Deriving a 95% confidence interval
+We denote the player's capital at time $t = \alpha$ by $C_\alpha$. For $\beta \geq \alpha$ forming the fixed time period $\mathcal T = \{t \geq 0 \mid \alpha \leq t \leq \beta\}$, what is the probability of $C_\beta = C_\alpha + \zeta$, where $\zeta \geq 0$? (see further constraints on $\zeta$ below).
+We denote the amount of gambles won for $t \in \mathcal T$ by $W_\mathcal T$ and the total number of losses by $L_\mathcal T$. Then, the value of $C_\beta$ can be expressed by
+$$
+C_\beta = C_\alpha + W_\mathcal T - L_\mathcal T
+$$
+And since we are interested in $C_\beta = \zeta$, we have that
+$$
+C_\alpha + W_\mathcal T - L_\mathcal T = \zeta \tag{1}
+$$
+Notice that in order for a solution to exist for eqn. 1, we must constrain $\zeta \in \left[ \min\{\zeta_\min, 0\}; \zeta_\max \right]$. It can easily be shown that $\zeta_\max = C_\alpha + D_\mathcal T$ and $\zeta_\min = \{0, C_\alpha - D_\mathcal T\}$.
+
+Since the player roll can be described as a Bernoulli trial with a success probability $p$, a series of rolls follow a binomial distribution, i.e. $W \sim B(D_\mathcal T, p)$. The PDF of the binomial distribution is given by
+$$
+\begin{align*}
+p(x) &= \Pr(W_\mathcal T = x) \\
+     &= {D_\mathcal T \choose x} p^x (1 - p)^{D_\mathcal T - x}
+\end{align*}
+$$
+
+For large values of $D_\mathcal T$, we can approximate the binomial distribution of $W_\mathcal T$ as a normal distribution such that $W_\mathcal T \sim \mathcal N(D_\mathcal T p, D_\mathcal T p(1-p))$. Then, the 95% CI is given by determining $z_{0.025}$ and $z_{0.975}$.
+
+### Simulation in R
+We start by declaring some global variables and parameters:
+```{r}
+initial_capital <- 50  # C alpha
+p_gamble <- 0.44 # Probability of success in gamble
+xi <- 2*p_gamble - 1  # Used for C(t) = initial_capital + xi * t
+
+num_simulations <- 125  # Number of stochastic simulations for data
+simulation_duration <- 2000  # Total simulation time
+lookahead <- 5/(p_gamble - p_gamble^2)
+T <- seq(1, simulation_duration, by = 1)  # Simulation time vector
+```
+
+To calculate confidence interval and expected game trend:
+
+```{r}
+theoretical_model <- function(p, duration) {
+  xi <- 2 * p - 1
+  E <- rep(initial_capital, simulation_duration) + xi * T  # Expected capital trend
+  
+  upper_CI <- c()
+  lower_CI <- c()
+  
+  TCI <- seq(1, simulation_duration, by = lookahead)
+  for (t in T) {
+    pred_hi <- 2 * qbinom(p = 0.975, size = t, prob = p) - 1/2 * t
+    pred_lo <- 2 * qbinom(p = 0.025, size = t, prob = p) - 1/2 * t
+    upper_CI <- append(upper_CI, E[t] + 1)
+    lower_CI <- append(lower_CI, E[t] - 1)
+  }
+  
+  temp <- data.frame(T, E, lower_CI, upper_CI)
+  return(temp)
+  
+}
+
+df <- theoretical_model(p_gamble, simulation_duration)
+```
+
+Lastly, to simulate stochastic gambling games:
+
+```{r}
+simulate_game <- function(p) {
+  rolls <- purrr::rbernoulli(simulation_duration, p)
+  rolls <- as.integer(rolls)
+  
+  num_wins <- cumsum(rolls)
+  num_losses <- T - num_wins
+  capital <- initial_capital + num_wins - num_losses
+  return(capital)
+}
+
+wrap_sim <- function(n, p) {
+  sims <- data.frame(T)
+  for (i in 1:n) {
+    temp <- simulate_game(p)
+    sims <- cbind(sims, temp)
+  }
+  sim_colnames <- paste("sim",1:n, sep="")
+  colnames(sims) <- c("T", sim_colnames)
+  
+  sims_long <- sims %>%
+    pivot_longer(paste("sim", 1:n, sep="")) %>%
+    mutate(p = p)
+  return(sims_long)
+}
+
+model.error <- function(sim, model) {
+  composite_df <- merge(sim, model)
+  result <- composite_df %>%
+    group_by(name) %>%
+    mutate(avg_error = E - value) %>%
+    select(T, name, avg_error)
+  return(result)
+}
+
+
+err <- model.error(sims_long, df)
+err_hist <- ggplot(err, aes(x = avg_error)) +
+  geom_histogram()
+  
+sims_long <- wrap_sim(80, p_gamble)
+```
+
+
+Visualization:
+
+```{r, fig.cap = "**Figure 1:** The dashed lines represent the 95% CI and the center line the expected trend."}
+ggplot(data = sims_long, aes(x = T, y = value, group = name)) +
+  geom_line(alpha = 0.2, col = "#C8A4D2") +
+  geom_line(data = df, aes(x = T, y = E, group = "non-group")) +
+  labs(
+    x = "Simulation time",
+    y = "Capital value"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette="PRGn")
+```
+
+Due to technical constraints we render all simulated games from start to finish as ggplot would not be able to plot a dataframe of varying length.
+
+### Duration analysis of games
+The Kaplan-Meier estimator is a simple and very efficient method towards approximating the survival function $S(t)$ of some survivalistic event. Imagine we have a vector of $n$ simulated games. Then the Kaplan-Meier estimator is denoted $\hat S(t)$ and defined by
+$$
+\hat S(t) = \prod_{i = 1}^n \frac{n_i - l_i}{n_i}
+$$
+Where $n_i$ denotes the total number of uncensored games at time $t = i$ and $l_i$ denotes the number of players who have lost a game. Let us now consider the preparation from `sims_long` into a Survival object.
+
+```{r}
+survival <- function(sim) {
+  surv_df <- sim %>%
+    group_by(name) %>%
+    mutate(censor = min(which(value %in% c(0)), simulation_duration)) %>%
+    mutate(surv = (censor < simulation_duration)) %>%
+    ungroup() %>%
+    select(censor, surv)
+  return(Surv(surv_df$censor, surv_df$surv))
+}
+
+surv_obj <- survival(sims_long)
+kmfit <- survfit(surv_obj ~ 1, data = sims_long)
+ggsurvplot(kmfit, risk.table = FALSE, conf.int = TRUE, ggtheme = theme_minimal(), legend = "none", color = "black", font.x = 14, font.y = 14, font.tickslab = 14, fonts.subtitle = 14)
+```
+An interesting comparison can be made between the Kaplan-Meier estimators for different values of $p$:
+
+````{r, echo= FALSE}
+probs <- c(0.35, 0.4, 0.45, 0.5)
+sims <- list()
+
+for (prob in probs) {
+  len <- length(sims)
+  surv <- survival(wrap_sim(450, prob))
+  sims[[len + 1]] <- survfit(surv ~ 1)
+}
+
+convert_survdata <- function(survData) {
+  generic_start <- list(1.00, 0)
+  endpoint <- list(survData$surv[length(survData$surv)], simulation_duration)
+
+  newSurv <- append(append(generic_start[[1]], survData$surv), endpoint[[1]])
+  newTime <- append(append(generic_start[[2]], survData$time), endpoint[[2]])
+  return(data.frame(surv = newSurv, time = newTime))
+}
+
+draw_km_curves <- function() {}
+
+for (i in 1:length(sims)) assign(paste0("km", i), convert_survdata(sims[[i]]))
+
+ggplot(data = km1, aes(x = time, y = surv)) + 
+  geom_step(aes(colour = "0.35"), size = 1.0) +
+  geom_step(data = km2, aes(colour = "0.40"), size = 1.0) +
+  geom_step(data = km3, aes(colour = "0.45"), size = 1.0) +
+  geom_step(data = km4, aes(colour = "0.50"), size = 1.0) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(
+    x = "Time",
+    y = "Survival probability",
+    colour = "Value of p"
+  ) +
+  theme(text = element_text(size = 14)) +
+  scale_color_brewer(palette="PRGn")
+```
+The *median of survival* is a very useful quantity which represents the $t_{0.50}$ we have $\hat S( t_{0.50}) = 0.50$:
+
+```{r}
+probs <- seq(0.01, 1, by = 0.01)
+sim_median <- list()
+
+for (prob in probs) {
+  len <- length(sim_median)
+  surv <- survival(wrap_sim(40, prob))
+  sim_median[[len + 1]] <- survfit(surv ~ 1)
+}
+```
+
+Now we find the vector of the simulation medians:
+
+```{r}
+vec_surv_median <- function(vec) {
+  result <- c()
+  for (x in vec) {
+    len <- length(result)
+    y <- surv_median(x)
+    if (!is.na(y$median)) result <- append(result, y$median)
+  }
+  return(result)
+}
+
+medians <- vec_surv_median(sim_median)
+probs_used <- probs[1:length(medians)]
+median_by_prob <- data.frame(surv_median = medians, p = probs_used)
+
+ggplot(median_by_prob, aes(x = p, y = surv_median)) + 
+  geom_line(size = 1) +
+  theme_minimal() +
+  labs(
+    x = "Probability of success",
+    y = "Median of survival"
+  ) +
+  ylim(0, 2000) +
+  xlim(0, 0.5) +
+  theme(text = element_text(size = 14))
+```
