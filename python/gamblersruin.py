@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-
-from lifelines import KaplanMeierFitter
 from collections import defaultdict
+from lifelines import KaplanMeierFitter
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
 
 
 class GamblingFunction:
