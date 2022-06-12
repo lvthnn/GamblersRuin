@@ -5,8 +5,31 @@ import seaborn as sns
 import pandas as pd
 
 from lifelines import KaplanMeierFitter
-
 from collections import defaultdict
+
+
+class GamblingFunction:
+    def __init__(self, bin_vec=None, payoff_vec=None):
+        self._bin_vec = np.sort(bin_vec)
+        self._payoff_vec = payoff_vec
+        self._mapping = self.__construct_mapping__()
+
+    def __construct_mapping__(self):
+        return {self._bin_vec[i]: self._payoff_vec[i] for i in range(len(self._bin_vec))}
+
+    @property
+    def mapping(self):
+        return self._mapping
+
+    def get_value(self, x=None):
+        elmin, elmax = np.min(self._bin_vec), np.max(self._bin_vec)
+        if x is None:
+            x = np.random.rand(elmin, elmax)
+        d = np.digitize(x, self._bin_vec, right=True)
+        k = self._bin_vec[d - 1]
+        return self._mapping[k](x)
+
+
 class GamblersRuin:
     def __init__(self, sim_duration, initial_capital, p):
         self._duration = sim_duration
@@ -14,7 +37,7 @@ class GamblersRuin:
         self._initial_capital = initial_capital
         self._kmf = KaplanMeierFitter()
         self._p = p
-        self._expectation = self.__expected_model__()
+
         sns.set_theme()
 
     def __expected_model__(self):
@@ -73,6 +96,7 @@ class GamblersRuin:
         data = {"time": times, "event": events, "p": ps}
         return pd.DataFrame(data)
 
+    @property
     def expectation(self):
         """
         Returns expected game trend of model.
@@ -85,7 +109,7 @@ class GamblersRuin:
         to form a timeseries of the expected value.
 
         """
-        return self._expectation
+        return self.expectation
 
     def simulate_game(self, num_games=1, p_vec=None):
         """
@@ -120,9 +144,10 @@ class GamblersRuin:
 
     def visualize_games(self, games, show_theoretical=False):
         """
-        Summary line.
+        Shows plot of simulated games.
   
-        Extended description of function.
+        Displays simulated games as line plots with the option of showing the theoretical expected
+        trend over time.
   
         Parameters:
         games (list): List of simulated games to be visualized
@@ -135,8 +160,7 @@ class GamblersRuin:
         for i in range(num_games):
             sns.lineplot(x=games[i]["time"], y=games[i]["capital"], alpha=0.1, color="C0")
         if show_theoretical:
-            sns.lineplot(x=self._timevec, y=self._expectation, color="red", label="Predicted trend", linewidth=3)
-
+            sns.lineplot(x=self._timevec, y=self.expectation, color="red", label="Predicted trend", linewidth=3)
         plt.xlabel("Time")
         plt.ylabel("Capital")
         plt.show()
@@ -145,7 +169,7 @@ class GamblersRuin:
         """
         Estimates survival function for a vector of simulated games. Values of p can vary.
 
-        Extended description of function.
+        Uses the Kaplan-Meier estimator fitter from the lifelines package to compare the difference in
 
         Parameters:
         games (list): List of simulated games to be estimated using the Kaplan-Meier estimator.
@@ -160,7 +184,7 @@ class GamblersRuin:
             self._kmf.fit(durations=subset["time"], event_observed=subset["event"], label=f"{p}")
             self._kmf.plot_survival_function(ax=ax)
         plt.title("Duration analysis for different p values")
-        plt.xlabel("Number of gambles")
+        plt.xlabel("Time elapsed (num gambles)")
         plt.ylabel("Proportion of games in play")
         plt.ylim(-0.05, 1.05)
         plt.show()
@@ -179,7 +203,7 @@ class GamblersRuin:
     def average_error(self, games):
         err = []
         for game in games:
-            temp = self._expectation - game["capital"]
+            temp = self.expectation - game["capital"]
             avg_err = np.average(temp)
             result = {"avg_error": avg_err, "ind_error": temp}
             err.append(pd.DataFrame(result))
