@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from collections import defaultdict
 from lifelines import KaplanMeierFitter
 import matplotlib.pyplot as plt
@@ -19,22 +20,27 @@ class GamblingFunction:
     def mapping(self):
         return self._mapping
 
-    def get_value(self, x=None):
-        elmin, elmax = np.min(self._bin_vec), np.max(self._bin_vec)
-        if x is None:
-            x = np.random.rand(elmin, elmax)
-        d = np.digitize(x, self._bin_vec, right=True)
+    def get_value(self, r=None):
+        elmin, elmax = np.min(self._bin_vec, 0), np.max(self._bin_vec)
+        if r is None:
+            r = np.random.uniform(elmin, elmax)
+        d = np.digitize(r, self._bin_vec, right=True)
         k = self._bin_vec[d - 1]
-        return self._mapping[k](x)
+        if callable(self._mapping[k]):
+            return self._mapping[k](r)
+        return self._mapping[k]
 
 
 class GamblersRuin:
-    def __init__(self, sim_duration, initial_capital, p):
+    def __init__(self, sim_duration, initial_capital, p, gambling_function=None):
         self._duration = sim_duration
         self._timevec = np.arange(1, sim_duration + 1)
         self._initial_capital = initial_capital
         self._kmf = KaplanMeierFitter()
         self._p = p
+       
+        if gambling_function is not None:
+           self._gambling_function = gambling_function 
 
         sns.set_theme()
 
@@ -159,6 +165,7 @@ class GamblersRuin:
             sns.lineplot(x=games[i]["time"], y=games[i]["capital"], alpha=0.1, color="C0")
         if show_theoretical:
             sns.lineplot(x=self._timevec, y=self.expectation, color="red", label="Predicted trend", linewidth=3)
+
         plt.xlabel("Time")
         plt.ylabel("Capital")
         plt.show()
@@ -188,6 +195,15 @@ class GamblersRuin:
         plt.show()
 
     def median_survival(self, games):
+        """
+        Calculates median of survival given a set of simulated games.
+
+        Uses Kaplan-Meier estimate method to derive a survival function estimate and finds median of
+        survival. Returns Pandas dataframe containing p value of game with survival median.
+
+        Parameters:
+        games (list): List of simulations for analysis.
+        """
         data = self.__convert_to_surv(games)
         unique_ps = np.unique(data["p"])
         result = pd.DataFrame(columns=["p", "median"])
@@ -206,3 +222,7 @@ class GamblersRuin:
             result = {"avg_error": avg_err, "ind_error": temp}
             err.append(pd.DataFrame(result))
         return err
+
+if __name__ == '__main__':
+    func = GamblingFunction(bin_vec=[0.25, 0.75, 1.25], payoff_vec=[2, 2, 2])
+    print(func.get_value())
